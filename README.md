@@ -29,10 +29,7 @@ cp .env.example .env
 # edit if you changed model or base URL
 
 # 5) Run
-python -m qa_agentic.run \
-  --story mocks/jira_story.json \
-  --schema mocks/schema_api.json \
-  --tools mocks/tools_registry.json
+python -m qa_agentic.run --story mocks/jira_story.json --schema mocks/schema_api.json --tools mocks/tools_registry.json
 ```
 
 ## What you should see

@@ -21,10 +21,12 @@ def main(
     settings["llm"]["model"] = os.getenv("OLLAMA_MODEL", settings["llm"]["model"])
     settings["llm"]["base_url"] = os.getenv("OLLAMA_BASE_URL", settings["llm"]["base_url"])
 
+    
     graph, ctx = build_graph(story, schema, tools, settings)
 
-    # Run the graph
-    state = graph.invoke({})
+    # Run with verbose=True to see step-by-step
+    state = graph.invoke({}, verbose=True)
+
 
     print(f"[bold green]Report written to[/]: {state.get('report_path')}")
 
