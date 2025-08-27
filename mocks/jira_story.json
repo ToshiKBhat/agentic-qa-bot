@@ -1,0 +1,13 @@
+{
+  "id": "TLC-1234",
+  "title": "Join trips with zone names and validate KPIs",
+  "body": "As a data analyst, I need a joined view of trips with pickup/dropoff zone names to compute borough-level KPIs.",
+  "acceptance_criteria": [
+    "Exclude trips where tpep_pickup_datetime > tpep_dropoff_datetime",
+    "Passenger count must be between 1 and 6",
+    "Join coverage: PULocationID and DOLocationID must resolve to known zones; coverage must be >= 99.5%",
+    "Null tolerance: passenger_count null percentage must be <= 0.5%",
+    "Trip distance must be >= 0"
+  ],
+  "notes": "Use latest month parquet files in data/parquet; read-only access only. Provide borough names via zone lookup join on LocationID."
+}

@@ -1,0 +1,17 @@
+llm:
+  model: ${OLLAMA_MODEL}
+  base_url: ${OLLAMA_BASE_URL}
+execution:
+  retries: 2
+  hitl_after_retries: true
+  duckdb:
+    read_only_verbs: ["SELECT", "WITH", "EXPLAIN"]
+  data_paths:
+    trips: data/parquet/yellow_tripdata_2021-01.parquet
+    zones: data/parquet/taxi_zone_lookup.parquet
+hitl:
+  mode: cli          # cli | auto
+  auto_approve: false
+  max_questions_per_node: 3
+report:
+  out_dir: data/outputs

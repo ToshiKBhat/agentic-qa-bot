@@ -1,0 +1,21 @@
+[project]
+name = "agentic-qa-test-poc"
+version = "0.1.0"
+description = "Agentic QA Test POC: LangGraph + Ollama + DuckDB + dynamic validations"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "langchain>=0.2.11",
+  "langgraph>=0.2.30",
+  "pydantic>=2.7",
+  "duckdb>=1.0.0",
+  "pandas>=2.2",
+  "pyarrow>=16.1",
+  "python-dotenv>=1.0",
+  "typer>=0.12",
+  "rich>=13.7"
+]
+[tool.setuptools]
+package-dir = {"" = "src"}
+[tool.setuptools.packages.find]
+where = ["src"]

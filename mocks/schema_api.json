@@ -1,0 +1,29 @@
+{
+  "datasets": [
+    {
+      "name": "trips",
+      "path": "data/parquet/yellow_tripdata_2021-01.parquet",
+      "columns": {
+        "VendorID": "int32",
+        "tpep_pickup_datetime": "timestamp",
+        "tpep_dropoff_datetime": "timestamp",
+        "passenger_count": "int32",
+        "trip_distance": "float32",
+        "PULocationID": "int32",
+        "DOLocationID": "int32",
+        "fare_amount": "float32",
+        "tip_amount": "float32",
+        "payment_type": "int32"
+      }
+    },
+    {
+      "name": "zones",
+      "path": "data/parquet/taxi_zone_lookup.parquet",
+      "columns": {
+        "LocationID": "int32",
+        "Borough": "string",
+        "Zone": "string"
+      }
+    }
+  ]
+}
