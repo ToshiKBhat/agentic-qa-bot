@@ -5,7 +5,7 @@ execution:
   retries: 2
   hitl_after_retries: true
   duckdb:
-    read_only_verbs: ["SELECT", "WITH", "EXPLAIN"]
+    read_only_verbs: ["SELECT", "WITH"]
   data_paths:
     trips: data/parquet/yellow_tripdata_2021-01.parquet
     zones: data/parquet/taxi_zone_lookup.parquet

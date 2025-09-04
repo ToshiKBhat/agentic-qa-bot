@@ -9,6 +9,8 @@ from .hitl import Hitl
 from langchain.prompts import ChatPromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 from langchain_core.output_parsers import StrOutputParser
+import logging, json
+logger = logging.getLogger("graph")
 # -----------------------------
 # Structured outputs
 # -----------------------------
@@ -50,31 +52,89 @@ class Context:
 def build_llm(settings: dict):
     model = settings["llm"]["model"]
     base_url = settings["llm"]["base_url"]
-    return init_chat_model(model, model_provider="ollama", base_url=base_url)
+    return init_chat_model(model, model_provider="ollama", base_url=base_url,reasoning=True)
+from langchain_core.runnables import RunnableLambda
+from typing import Type
 
-def _structured_call(llm, schema_model, system_text: str, user_payload: dict):
+def _clean_and_validate_json(raw: str, schema_model: type) -> dict:
     """
-    Force JSON output and parse it into a Pydantic model, without requiring
-    .with_structured_output() (not supported by qwen2.5 in some stacks).
+    Cleans and validates raw JSON string against the schema_model.
+    Raises ValueError if any required field is missing or any extra field is present.
+    """
+    import json
+    # from pydantic.fields import ModelField
+    try:
+        data = json.loads(raw)
+    except Exception as e:
+        raise ValueError(f"Raw output is not valid JSON: {e}\nRaw: {raw}")
+
+    # Get schema fields
+    schema_fields = set(schema_model.model_fields.keys())
+    required_fields = set(
+        k for k, v in schema_model.model_fields.items() if v.is_required
+    )
+    data_fields = set(data.keys())
+
+    # Check for extra fields
+    extra = data_fields - schema_fields
+    if extra:
+        raise ValueError(f"Extra fields in output: {extra}\nRaw: {raw}")
+
+    # Check for missing required fields
+    missing = required_fields - data_fields
+    if missing:
+        raise ValueError(f"Missing required fields: {missing}\nRaw: {raw}")
+
+    return data
+
+def _structured_call(llm, schema_model: Type[BaseModel], system_text: str, user_payload: dict):
+    """
+    Force JSON output and parse it into a Pydantic model.
+    If the schema is CodegenOutput, also print/log the raw model output BEFORE parsing.
     """
     parser = PydanticOutputParser(pydantic_object=schema_model)
 
     prompt = ChatPromptTemplate.from_messages([
-        # Note: use variables {system_text} and {format_instructions} to avoid brace conflicts
         ("system", "{system_text}\n\nYou MUST return only valid JSON matching the schema.\n{format_instructions}"),
         ("human", "{payload_json}")
     ])
-
     prompt = prompt.partial(format_instructions=parser.get_format_instructions())
 
-    # Ask Ollama to return pure JSON (supported for many models)
+    # Ask Ollama to return pure JSON
     json_llm = llm.bind(format="json")
 
-    chain = prompt | json_llm | StrOutputParser() | parser
-    return chain.invoke({
-        "system_text": system_text,
-        "payload_json": json.dumps(user_payload)
-    })
+    # Common pre-parser stage: produce a plain string
+    pre_parse = prompt | json_llm | StrOutputParser()
+
+    # Only tap/print for CodegenOutput
+    is_codegen = getattr(schema_model, "__name__", "") == "CodegenOutput"
+
+    if is_codegen:
+        def _tap(raw: str):
+            print("\n=== RAW MODEL OUTPUT (codegen pre-parse) ===\n" + str(raw))
+            input("> ").strip()
+            logger.info(json.dumps({
+                "event": "raw_model_output",
+                "stage": "codegen",
+                "raw": raw
+            }, default=str))
+            return raw
+
+        chain = pre_parse | RunnableLambda(_tap)
+    else:
+        chain = pre_parse
+
+    try:
+        raw = chain.invoke({
+            "system_text": system_text,
+            "payload_json": json.dumps(user_payload, default=str)
+        })
+        cleaned = _clean_and_validate_json(raw, schema_model)
+        return schema_model(**cleaned)
+    except Exception as e:
+        logger.error(json.dumps({"event": "parse_error", "error": str(e)}, default=str))
+        raise
+
 # -----------------------------
 # Planner (plan only; no code)
 # -----------------------------
@@ -91,6 +151,7 @@ def planner_node(ctx: Context) -> PlannerOutput:
             "If acceptance criteria lack critical details (thresholds, dimensions), "
             "set ready=false and list clarifications. Do NOT produce code."
         )
+        
         payload = {
             "story": ctx.story,
             "schema": ctx.schema,
@@ -108,7 +169,7 @@ def planner_node(ctx: Context) -> PlannerOutput:
         for i, q in enumerate(plan.clarifications[: ctx.settings["hitl"]["max_questions_per_node"]]):
             answers[f"q{i+1}"] = ctx.hitl.ask(q)
         plan = _invoke_planner(extra_answers=answers)
-
+    logger.info(json.dumps({"event":"planner_output", "plan": plan}, default=str))
     return plan
 
 
@@ -120,7 +181,7 @@ def codegen_node(ctx: Context, plan: PlannerOutput, history: List[Dict[str, Any]
     llm = build_llm(ctx.settings)
     system_text = (
         "You generate READ-ONLY SQL for DuckDB against parquet-backed views named after datasets. "
-        "Only SELECT/WITH/EXPLAIN. If a prior attempt failed, use prior SQL and error messages to repair."
+        "Only SELECT/WITH . If a prior attempt failed, use prior SQL and error messages to repair."
     )
     payload = {
         "story": ctx.story,
@@ -130,13 +191,50 @@ def codegen_node(ctx: Context, plan: PlannerOutput, history: List[Dict[str, Any]
         "prev_error": prev_error,
         "history": history or [],
     }
+    
     out = _structured_call(llm, CodegenOutput, system_text, payload)
-    return {"sql": out.sql}
+    sql = out.sql
+    if isinstance(sql, str):
+        sql = [sql]
+    elif not isinstance(sql, list):
+        sql = [str(sql)]
+    return {"sql": sql}
 
 # -----------------------------
 # Executor
 # -----------------------------
+def _normalize_sql(sql_item) -> str:
+    """
+    Accepts:
+      - str: returns stripped string
+      - list[str]: joins lines with newlines
+      - dict with 'sql' or 'lines' keys: tries to extract and join
+    Returns a stripped, single SQL string ready to execute.
+    """
+    if sql_item is None:
+        return ""
+    if isinstance(sql_item, str):
+        return sql_item.strip()
+    if isinstance(sql_item, (list, tuple)):
+        # list of lines → single statement
+        return "\n".join(map(str, sql_item)).strip()
+    if isinstance(sql_item, dict):
+        if "sql" in sql_item and isinstance(sql_item["sql"], (list, tuple)):
+            return "\n".join(map(str, sql_item["sql"])).strip()
+        if "sql" in sql_item and isinstance(sql_item["sql"], str):
+            return sql_item["sql"].strip()
+        if "lines" in sql_item and isinstance(sql_item["lines"], (list, tuple)):
+            return "\n".join(map(str, sql_item["lines"])).strip()
+    # last resort
+    return str(sql_item).strip()
 
+
+def _preview_sql(sql: str, max_lines: int = 120) -> str:
+    lines = sql.splitlines()
+    preview = "\n".join(f"{i+1:>4}: {ln}" for i, ln in enumerate(lines[:max_lines]))
+    if len(lines) > max_lines:
+        preview += "\n... (truncated)"
+    return preview
 def executor_node(ctx: Context, code: Dict[str, Any]) -> Dict[str, Any]:
     from .tools import tool_duckdb_sql
     paths = {ds["name"]: ds["path"] for ds in ctx.schema.get("datasets", [])}
@@ -144,15 +242,31 @@ def executor_node(ctx: Context, code: Dict[str, Any]) -> Dict[str, Any]:
     results, ok = [], True
     last_error_type, last_error = None, None
 
-    for sql in code.get("sql", []):
+    # Support either a list of full SQL statements or a single one
+    raw_sql_items = code.get("sql", [])
+    if isinstance(raw_sql_items, (str, dict)):
+        raw_sql_items = [raw_sql_items]
+
+    for sql_item in raw_sql_items:
+        query = _normalize_sql(sql_item)
+        if not query:
+            continue
+
         try:
-            df = tool_duckdb_sql(sql, paths=paths)
-            results.append({"sql": sql, "rows": len(df), "sample": df.head(5).to_dict(orient="records")})
-        except Exception as e:  # classify
+            df = tool_duckdb_sql(query, paths=paths)
+            results.append({
+                "sql": query,
+                "rows": len(df),
+                "sample": df.head(5).to_dict(orient="records")
+            })
+        except Exception as e:
             ok = False
             last_error = str(e)
             msg = last_error.lower()
-            if "no such file" in msg or "failed to open" in msg:
+
+            if "syntax error at end of input" in msg or "unterminated" in msg:
+                last_error_type = "syntax_incomplete"
+            elif "no such file" in msg or "failed to open" in msg:
                 last_error_type = "env"
             elif "catalog" in msg or "column" in msg or "schema" in msg:
                 last_error_type = "schema"
@@ -160,7 +274,21 @@ def executor_node(ctx: Context, code: Dict[str, Any]) -> Dict[str, Any]:
                 last_error_type = "connection"
             else:
                 last_error_type = "unknown"
-            results.append({"sql": sql, "error": last_error, "error_type": last_error_type})
-            break
 
-    return {"ok": ok, "results": results, "last_error": last_error, "last_error_type": last_error_type}
+            # Log a helpful preview to your JSONL / console
+            logger.error(json.dumps({
+                "event": "sql_error",
+                "error": last_error,
+                "error_type": last_error_type,
+                "sql_preview": _preview_sql(query)
+            }, default=str))
+
+            results.append({"sql": query, "error": last_error, "error_type": last_error_type})
+            break  # stop on first failing statement
+
+    return {
+        "ok": ok,
+        "results": results,
+    "last_error": last_error,
+    "last_error_type": last_error_type
+}

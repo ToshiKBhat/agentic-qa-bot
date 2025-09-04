@@ -8,7 +8,7 @@
         "properties": { "sql": { "type": "string" } },
         "required": ["sql"]
       },
-      "safety": { "allow": ["SELECT", "WITH", "EXPLAIN"], "deny": ["INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"] }
+      "safety": { "allow": ["SELECT", "WITH"], "deny": ["INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER"] }
     },
     {
       "name": "fetch_schema",

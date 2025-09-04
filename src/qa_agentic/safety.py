@@ -1,8 +1,8 @@
 import re
 
-READ_ONLY = ("SELECT", "WITH", "EXPLAIN")
-FORBIDDEN = ("INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER")
-
+READ_ONLY = ("SELECT", "WITH")
+# FORBIDDEN = ("INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER", "EXPLAIN")
+FORBIDDEN = ("INSERT", "UPDATE", "DELETE", "CREATE",  "ALTER", "EXPLAIN")
 _SQL_VERB = re.compile(r"^\s*(\w+)", re.IGNORECASE | re.DOTALL)
 
 class SqlSafetyError(ValueError):

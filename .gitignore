@@ -10,6 +10,8 @@ __pycache__/
 .env
 *.env
 
+#logs
+/logs/*
 
 # Data
 /data/parquet/*
