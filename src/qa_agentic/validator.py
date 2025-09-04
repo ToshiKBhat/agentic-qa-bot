@@ -77,7 +77,14 @@ def run_job(job: MetricJob, paths: Dict[str, str]) -> Dict[str, Any]:
         val = float(df.loc[0, "v"]) if len(df) else 0.0
         ev = {"rows": len(df)}
     elif {"mn","mx"}.issubset(set(df.columns)):
-        val = (float(df.loc[0, "mn"]), float(df.loc[0, "mx"]))
+        mn = df.loc[0, "mn"]
+        mx = df.loc[0, "mx"]
+        # Convert Timestamps to float (seconds since epoch) or string
+        if hasattr(mn, "timestamp"):
+            mn = mn.timestamp()
+        if hasattr(mx, "timestamp"):
+            mx = mx.timestamp()
+        val = (float(mn), float(mx))
         ev = {"mn": val[0], "mx": val[1]}
     else:
         val = 0.0

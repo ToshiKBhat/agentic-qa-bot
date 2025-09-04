@@ -24,6 +24,8 @@ def tool_duckdb_sql(sql: str, paths: dict[str, str] | None = None) -> pd.DataFra
                 pth = str(Path(pth))
                 con.execute(f"CREATE VIEW {name} AS SELECT * FROM read_parquet('{pth}')")
         return con.execute(sql).fetchdf()
+    except Exception as e:
+        raise RuntimeError(f"SQL execution error: {e}") from e  
     finally:
         con.close()
 

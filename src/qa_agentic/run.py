@@ -78,13 +78,13 @@ def main(
     from pathlib import Path
     history_path = Path("logs") / f"{run_id}.history.jsonl"
     with open(history_path, "w", encoding="utf-8") as f:
-        for snap in reversed(list(history)):  # oldest→newest
+        for i, snap in enumerate(reversed(list(history))):  # oldest→newest
             f.write(json.dumps({
-                "checkpoint_id": snap.checkpoint_id,
+                "snapshot_id": f"{run_id}-{i}",  # unique identifier per snapshot
                 "parent_checkpoint_id": getattr(snap, "parent_checkpoint_id", None),
-                "values": snap.values,  # state snapshot at that point
-                "next": snap.next,      # next nodes planned
-                "tasks": snap.tasks     # tasks spawned
+                "values": getattr(snap, "values", {}),
+                "next": getattr(snap, "next", []),
+                "tasks": getattr(snap, "tasks", [])
             }, default=str) + "\n")
     print(f"[bold cyan]State history:[/]", str(history_path))
 
